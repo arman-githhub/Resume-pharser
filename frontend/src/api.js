@@ -1,0 +1,128 @@
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+function getToken() {
+  return localStorage.getItem('token');
+}
+
+function authHeaders() {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function handleResponse(res) {
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const json = await res.json();
+      if (typeof json.detail === 'string') {
+        detail = json.detail;
+      } else if (json.detail && typeof json.detail === 'object') {
+        if (json.detail.message) {
+          detail = json.detail.message;
+          if (Array.isArray(json.detail.errors) && json.detail.errors.length > 0) {
+            const first = json.detail.errors[0];
+            if (first?.error) {
+              detail = `${detail}: ${first.error}`;
+            }
+          }
+        } else {
+          detail = JSON.stringify(json.detail);
+        }
+      } else {
+        detail = JSON.stringify(json);
+      }
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  return res.json();
+}
+
+async function handleBlobResponse(res) {
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      const json = await res.json();
+      detail = json.detail || JSON.stringify(json);
+    } catch (_) {}
+    throw new Error(detail);
+  }
+  return res.blob();
+}
+
+// Auth
+export const api = {
+  signup: (email, password) =>
+    fetch(`${BASE_URL}/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }).then(handleResponse),
+
+  login: (email, password) =>
+    fetch(`${BASE_URL}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    }).then(handleResponse),
+
+  me: () =>
+    fetch(`${BASE_URL}/me`, { headers: authHeaders() }).then(handleResponse),
+
+  // Score/Upload
+  checkScore: (resumes, jd_text, job_name, scan_id, min_overall_score) => {
+    const form = new FormData();
+    resumes.forEach((f) => form.append('resumes', f));
+    form.append('jd_text', jd_text);
+    if (job_name) form.append('job_name', job_name);
+    if (scan_id) form.append('scan_id', scan_id);
+    if (typeof min_overall_score === 'number') form.append('min_overall_score', String(min_overall_score));
+    return fetch(`${BASE_URL}/check-score`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: form,
+    }).then(handleResponse);
+  },
+
+  // History
+  jobs: (limit = 50, offset = 0) =>
+    fetch(`${BASE_URL}/jobs?limit=${limit}&offset=${offset}`, {
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  deleteJob: (jobId) =>
+    fetch(`${BASE_URL}/jobs/${jobId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  history: (limit = 50, offset = 0, jobId) => {
+    const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) });
+    if (jobId != null) qs.set('job_id', String(jobId));
+    return fetch(`${BASE_URL}/history?${qs.toString()}`, {
+      headers: authHeaders(),
+    }).then(handleResponse);
+  },
+
+  deleteHistory: (historyId) =>
+    fetch(`${BASE_URL}/history/${historyId}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }).then(handleResponse),
+
+  viewResume: (historyId) =>
+    fetch(`${BASE_URL}/history/${historyId}/resume`, {
+      headers: authHeaders(),
+    }).then(handleBlobResponse),
+
+  deleteHistoryBulk: (jobId) => {
+    if (jobId == null) {
+      throw new Error('Please select a job first.');
+    }
+    const qs = new URLSearchParams({ job_id: String(jobId) });
+    const suffix = `?${qs.toString()}`;
+    return fetch(`${BASE_URL}/history${suffix}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    }).then(handleResponse);
+  },
+};
